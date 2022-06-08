@@ -10,17 +10,28 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+
+// API
+app.get('/', (req, res) => {
+    res.send('Doctors Portal server is running!');
+});
+
 // Connect with MongoDB
-
-
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.ahoupp3.mongodb.net/?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
 
 async function run () {
     try {
         await client.connect();
-        const serviceCollection = client.db('doctors-portal').collection('appointment');
-        
+        const serviceCollection = client.db('doctors-portal').collection('appointments');
+
+        // Appoinments API
+        app.get('/appointments', async (req, res) => {
+            const query = {};
+            const cursor = serviceCollection.find(query);
+            const appointments = await cursor.toArray();
+            res.send(appointments);
+        })
     }
     finally {
 
@@ -28,14 +39,6 @@ async function run () {
 }
 
 run().catch(console.dir);
-
-
-// API's
-app.get('/', (req, res) => {
-  res.send('Doctors Portal server is running!');
-})
-
-
 
 app.listen(port, () => {
     console.log('Listening to the port', port);
