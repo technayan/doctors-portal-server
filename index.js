@@ -56,7 +56,7 @@ async function run () {
         })
 
         // All Users API
-        app.get('/users', async (req, res) => {
+        app.get('/users', verifyJWT, async (req, res) => {
             const users = await userCollection.find({}).toArray();
             res.send(users);
         })
@@ -73,6 +73,17 @@ async function run () {
             const result = await userCollection.updateOne(filter, updateDoc, options);
             const token = jwt.sign({email: email}, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
             res.send({result, token});
+        })
+
+        // Make User Admin API
+        app.put('/user/admin/:email', verifyJWT, async (req, res) => {
+            const email = req.params.email;
+            const filter = {email: email};
+            const updateDoc = {
+                $set: {role: 'admin'},
+            };
+            const result = await userCollection.updateOne(filter, updateDoc);
+            res.send(result);
         })
 
         // Available Appointment Slots API
