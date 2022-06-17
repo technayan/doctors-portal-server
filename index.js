@@ -55,6 +55,12 @@ async function run () {
             res.send(appointments);
         })
 
+        // All Users API
+        app.get('/users', async (req, res) => {
+            const users = await userCollection.find({}).toArray();
+            res.send(users);
+        })
+
         // Create User API
         app.put('/user/:email', async (req, res) => {
             const email = req.params.email;
