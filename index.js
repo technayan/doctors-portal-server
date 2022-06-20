@@ -43,6 +43,7 @@ async function run () {
     try {
         await client.connect();
         // Collections
+        const doctorCollection = client.db('doctors-portal').collection('doctors');
         const serviceCollection = client.db('doctors-portal').collection('appointments');
         const bookingCollection = client.db('doctors-portal').collection('bookings');
         const userCollection = client.db('doctors-portal').collection('users');
@@ -50,7 +51,7 @@ async function run () {
         // Appoinments API
         app.get('/appointments', async (req, res) => {
             const query = {};
-            const cursor = serviceCollection.find(query);
+            const cursor = serviceCollection.find(query).project({name: 1});
             const appointments = await cursor.toArray();
             res.send(appointments);
         })
@@ -147,6 +148,13 @@ async function run () {
             }
             const result = bookingCollection.insertOne(booking);
             return res.send({success: true, result});
+        })
+
+        // Add Doctor API
+        app.post('/doctors', verifyJWT, async (req, res) => {
+            const doctor = req.body;
+            const result = await doctorCollection.insertOne(doctor);
+            res.send(result);
         })
     }
     finally {
