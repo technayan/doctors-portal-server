@@ -3,6 +3,8 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const { MongoClient, ServerApiVersion } = require('mongodb');
+const nodemailer = require('nodemailer');
+const mg = require('nodemailer-mailgun-transport');
 
 
 const app = express();
@@ -11,6 +13,50 @@ const port = process.env.PORT || 5000;
 // Middlewares
 app.use(cors());
 app.use(express.json());
+
+// Email Send to User Using Nodemailer and Mailgun
+const auth = {
+    auth: {
+      api_key: process.env.SEND_EMAIL_API_KEY,
+      domain: 'sandbox25e007d26ce049bbb70793731b556d1f.mailgun.org'
+    }
+}
+
+const nodemailerMailgun = nodemailer.createTransport(mg(auth));
+
+const sendAppointmentEmail = (booking) => {
+    const {patientName, patientEmail, treatment, date, slot} = booking;
+
+    nodemailerMailgun.sendMail({
+        from: process.env.EMAIL_SENDER,
+        to: patientEmail,
+        subject: 'Booking an appointment on doctors portal',
+        html: `<div>
+                <p>Hello ${patientName},</p>
+                <p>Your booking for <strong>${treatment}</strong> on <strong>${date}</strong> at <strong>${slot}</strong> is successfully confirmed.</p>
+                <p>We are waiting to see you and have a nice meeting on <strong>${date}</strong> at <strong>${slot}</strong>.</p>
+                <h4>Our Address :</h4>
+                <p>Brooklyn, NY 10036, USA</p>
+                <p>+8801944516122</p>
+               </div>`,
+        //You can use "text:" to send plain-text content. It's oldschool!
+        text: `Hello ${patientName},
+                Your booking for ${treatment} on ${date} at ${slot} is successfully confirmed.
+                We are waiting to see you and have a nice meeting on ${date} at ${slot}.
+                Our Address :
+                Brooklyn, NY 10036, USA
+                +8801944516122
+                `
+      }, (err, info) => {
+        if (err) {
+          console.log(`Error: ${err}`);
+        }
+        else {
+          console.log(`Response: ${info}`);
+        }
+      });
+    
+}
 
 
 // API
@@ -48,6 +94,17 @@ async function run () {
         const bookingCollection = client.db('doctors-portal').collection('bookings');
         const userCollection = client.db('doctors-portal').collection('users');
 
+        // Verify Admin Middleware
+        const verifyAdmin = async (req, res, next) => {
+            const requester = req.decoded.email;
+            const requesterUser = await userCollection.findOne({email: requester});
+            if(requesterUser.role === 'admin') {
+                next();
+            } else {
+                return res.status(403).send({message: 'Forbidden Access'});
+            }
+        }
+
         // Appoinments API
         app.get('/appointments', async (req, res) => {
             const query = {};
@@ -57,7 +114,7 @@ async function run () {
         })
 
         // All Users API
-        app.get('/users', verifyJWT, async (req, res) => {
+        app.get('/users', verifyJWT, verifyAdmin, async (req, res) => {
             const users = await userCollection.find({}).toArray();
             res.send(users);
         })
@@ -85,21 +142,14 @@ async function run () {
         })
 
         // Make User Admin API
-        app.put('/user/admin/:email', verifyJWT, async (req, res) => {
+        app.put('/user/admin/:email', verifyJWT, verifyAdmin, async (req, res) => {
             const email = req.params.email;
             const filter = {email: email};
-            const requester = req.decoded.email;
-            const requesterUser = await userCollection.findOne({email: requester});
-            if(requesterUser.role === 'admin') {
-                const updateDoc = {
-                    $set: {role: 'admin'},
-                };
-                const result = await userCollection.updateOne(filter, updateDoc);
-                res.send(result);
-            } else {
-                return res.status(403).send({message: 'Forbidden'});
-            }
-            
+            const updateDoc = {
+                $set: {role: 'admin'},
+            };
+            const result = await userCollection.updateOne(filter, updateDoc);
+            res.send(result);
         })
 
         // Available Appointment Slots API
@@ -147,13 +197,30 @@ async function run () {
                 return res.send({success: false, booking: exist});
             }
             const result = bookingCollection.insertOne(booking);
+
+            console.log('sending email');
+            sendAppointmentEmail(booking);
             return res.send({success: true, result});
         })
 
         // Add Doctor API
-        app.post('/doctors', verifyJWT, async (req, res) => {
+        app.post('/doctors', verifyJWT, verifyAdmin, async (req, res) => {
             const doctor = req.body;
             const result = await doctorCollection.insertOne(doctor);
+            res.send(result);
+        })
+
+        // Doctors API
+        app.get('/doctors', verifyJWT, verifyAdmin, async(req, res) => {
+            const result = await doctorCollection.find().toArray();
+            res.send(result);
+        })
+
+        // Delete Doctor API
+        app.delete('/doctors/:email', verifyJWT, verifyAdmin, async(req, res) => {
+            const email = req.params.email;
+            const filter = {email: email};
+            const result = await doctorCollection.deleteOne(filter);
             res.send(result);
         })
     }
