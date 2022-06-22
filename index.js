@@ -2,10 +2,13 @@ const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const nodemailer = require('nodemailer');
 const mg = require('nodemailer-mailgun-transport');
 
+// Sample Stripe Secret API Key
+// Server side:
+const stripe = require('stripe')(process.env.STRIPE_SAMPLE_SECRET_API_KEY);
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -20,7 +23,7 @@ const auth = {
       api_key: process.env.SEND_EMAIL_API_KEY,
       domain: 'sandbox25e007d26ce049bbb70793731b556d1f.mailgun.org'
     }
-}
+};
 
 const nodemailerMailgun = nodemailer.createTransport(mg(auth));
 
@@ -82,8 +85,9 @@ const verifyJWT = (req, res, next) => {
         req.decoded = decoded;
         next();
       });
-
 }
+
+
 
 async function run () {
     try {
@@ -93,6 +97,7 @@ async function run () {
         const serviceCollection = client.db('doctors-portal').collection('appointments');
         const bookingCollection = client.db('doctors-portal').collection('bookings');
         const userCollection = client.db('doctors-portal').collection('users');
+        const paymentCollection = client.db('doctors-portal').collection('payments');
 
         // Verify Admin Middleware
         const verifyAdmin = async (req, res, next) => {
@@ -176,7 +181,7 @@ async function run () {
         })
         
         // My Bookings API
-        app.get('/my-bookings', verifyJWT, async (req, res) => {
+        app.get('/bookings', verifyJWT, async (req, res) => {
             const email = req.query.email;
             const decodedEmail = req.decoded.email;
             if(email === decodedEmail) {
@@ -187,6 +192,19 @@ async function run () {
                 return res.status(403).send({message: 'Forbidden access'});
             }
         })
+
+        // Create Payment Intent API
+        app.post('/create-payment-intent', verifyJWT, async (req, res) => {
+            const appointment = req.body;
+            const fee = appointment.fee;
+            const price = fee * 100;
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: price,
+                currency: 'usd',
+                payment_method_types:['card']
+            });
+            res.send({clientSecret: paymentIntent.client_secret});
+        });
 
         // Add Booking API
         app.post('/bookings', async (req, res) => {
@@ -201,6 +219,31 @@ async function run () {
             console.log('sending email');
             sendAppointmentEmail(booking);
             return res.send({success: true, result});
+        })
+
+        // Single Booking API
+        app.get('/bookings/:id', verifyJWT, async (req, res) => {
+            const id = req.params.id;
+            const query = {_id: ObjectId(id)};
+            const booking = await bookingCollection.findOne(query);
+            res.send(booking);
+        })
+
+        // Update Booking API
+        app.patch('/bookings/:id', verifyJWT, async (req, res) => {
+            const id = req.params.id;
+            const payment = req.body;
+            const filter = {_id: ObjectId(id)};
+            const updateDoc = {
+                $set: {
+                    paid: true,
+                    transactionId: payment.transactionId
+                }
+            }
+            const result = await paymentCollection.insertOne(payment);
+            const updatedBooking = await bookingCollection.updateOne(filter, updateDoc);
+
+            res.send(updatedBooking);
         })
 
         // Add Doctor API
